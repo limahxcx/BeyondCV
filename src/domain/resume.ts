@@ -199,7 +199,17 @@ export type ExperienceCorrection = {
   details?: { role: string; company: string; dates: string }[]
 }
 
+export function validExperienceCorrection(text: string, correction: ExperienceCorrection): boolean {
+  if (correction.mode !== 'selected') return true
+  const normalizedText = text.replace(/\r\n?/g, '\n')
+  return correction.passages.length > 0 && correction.passages.every((passage, index) =>
+    Boolean(passage.trim()) && normalizedText.includes(passage.replace(/\r\n?/g, '\n')) &&
+    Object.values(correction.details?.[index] ?? {}).every((value) => !value.trim() || passage.includes(value.trim())),
+  )
+}
+
 export function interpretResume(text: string, correction?: ExperienceCorrection): { resume: Resume; interpretation: Interpretation } {
+  if (correction && !validExperienceCorrection(text, correction)) throw new Error('A classificação deve corresponder ao texto extraído.')
   const resume = parseResumeText(text)
   const lines = asLines(text)
   const sections: Interpretation['sections'] = []
@@ -223,10 +233,8 @@ export function interpretResume(text: string, correction?: ExperienceCorrection)
     resume.experiences = []
     status = corrupted ? 'failure' : 'absent'
   } else if (correction?.mode === 'selected' && correction.passages.length) {
-    if (correction.passages.some((passage) => !passage.trim() || !text.includes(passage))) throw new Error('O trecho selecionado não corresponde ao texto extraído.')
     resume.experiences = correction.passages.flatMap((passage, index) => {
       const details = correction.details?.[index]
-      if (details && Object.values(details).some((value) => value.trim() && !passage.includes(value.trim()))) throw new Error('A classificação deve corresponder ao trecho selecionado.')
       return parseExperience(asLines(passage)).map((item, itemIndex) => ({
         ...item, id: `manual-${index}-${itemIndex}`,
         role: itemIndex === 0 && details?.role.trim() ? details.role.trim() : item.role,

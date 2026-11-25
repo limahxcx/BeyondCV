@@ -97,6 +97,8 @@ test('permite corrigir interpretação sem alterar o currículo e reavaliar a co
   await page.getByRole('textbox', { name: 'Empresa da experiência 1' }).fill('Empresa inventada')
   await expect(page.getByRole('alert')).toHaveText('Cargo, empresa e período devem corresponder ao texto do trecho selecionado.')
   await expect(page.getByRole('button', { name: 'Reexecutar análise com esta classificação' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Analisar currículo', exact: true }).last().click()
+  await expect(page.getByText('Revise a classificação: os campos devem corresponder ao texto extraído e aos trechos selecionados.')).toBeVisible()
   await page.getByRole('textbox', { name: 'Empresa da experiência 1' }).fill('Example Labs')
   await page.getByRole('button', { name: 'Reexecutar análise com esta classificação' }).click()
   await expect(page.getByText('Cobertura da avaliação: 100% do peso total.')).toBeVisible()

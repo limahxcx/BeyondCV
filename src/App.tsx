@@ -5,7 +5,7 @@ import {
   Sparkles, Target, Trash2, Upload, X,
 } from 'lucide-react'
 import { categoryLabel, evaluateResume, type Recommendation, type ResumeEvaluation, type Severity } from './domain/scoring'
-import { createEmptyResume, interpretResume, parseResumeText, ResumeSchema, resumeToText, type Experience, type ExperienceCorrection, type Interpretation, type Resume, type ResumeTemplate } from './domain/resume'
+import { createEmptyResume, interpretResume, parseResumeText, ResumeSchema, resumeToText, validExperienceCorrection, type Experience, type ExperienceCorrection, type Interpretation, type Resume, type ResumeTemplate } from './domain/resume'
 import { compareResumeToJob, type JobMatchResult } from './domain/jobMatch'
 import { ruleBasedProvider } from './services/ai/providers'
 import { translate, type Locale, type TranslationKey } from './i18n'
@@ -183,6 +183,10 @@ function App() {
     if (draftText.trim().length < 40) {
       setError(t('textTooShort'))
       setEvaluation(null)
+      return
+    }
+    if (!validExperienceCorrection(draftText, correction)) {
+      setError('Revise a classificação: os campos devem corresponder ao texto extraído e aos trechos selecionados.')
       return
     }
     const { resume: parsed, interpretation } = interpretResume(draftText, correction)

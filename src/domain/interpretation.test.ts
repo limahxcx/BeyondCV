@@ -139,6 +139,14 @@ Enfermagem`
     expect(() => interpretResume(text, { mode: 'selected', passages: [passage], details: [{ ...details[0], company: 'Inventada' }] })).toThrow('classificação')
   })
 
+  it('aceita trechos selecionados de texto com quebras de linha do Windows', () => {
+    const passage = 'Gerente | Empresa | 2020 - 2024\n• Melhorei processos com a equipe.'
+    const text = `Pessoa Exemplo\r\nExperiência\r\n${passage.replace('\n', '\r\n')}\r\nFormação\r\nAdministração`
+    const result = interpretResume(text, { mode: 'selected', passages: [passage] })
+    expect(result.resume.rawText).toBe(text)
+    expect(result.interpretation.status).toBe('high')
+  })
+
   it('não interpreta falha de extração como ausência de experiência', () => {
     const text = `Pessoa Exemplo\nEXPERIÊNCIA\nGerente | Empresa Exemplo | 2020 - 2024\n\uFFFD\uFFFD texto de extração danificado.`
     const { resume, interpretation } = interpretResume(text)
