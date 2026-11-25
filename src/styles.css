@@ -560,6 +560,13 @@ h1, h2, h3, p { margin-top: 0; }
 .floating-note { position: relative; right: auto; bottom: auto; margin: -20px 0 0 auto; }
 .trust-row span { white-space: normal; }
 .mobile-menu { display: none; }
+.interpretation-panel { margin: 20px 0; padding: clamp(18px, 2vw, 28px); }
+.interpretation-panel summary { cursor: pointer; font-size: var(--font-card); font-weight: 700; }
+.interpretation-panel h3 { margin: 20px 0 8px; font-size: var(--font-body); }
+.interpretation-panel p, .interpretation-panel li { line-height: 1.6; }
+.interpretation-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; background: #f5f7fb; padding: 12px; }
+.diagnostic-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.diagnostic-passage { margin: 10px 0; }
 
 @media (max-width: 1100px) {
   .sidebar { width: 250px; }

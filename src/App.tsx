@@ -5,7 +5,7 @@ import {
   Sparkles, Target, Trash2, Upload, X,
 } from 'lucide-react'
 import { categoryLabel, evaluateResume, type Recommendation, type ResumeEvaluation, type Severity } from './domain/scoring'
-import { createEmptyResume, parseResumeText, ResumeSchema, resumeToText, type Experience, type Resume, type ResumeTemplate } from './domain/resume'
+import { createEmptyResume, interpretResume, parseResumeText, ResumeSchema, resumeToText, type Experience, type ExperienceCorrection, type Interpretation, type Resume, type ResumeTemplate } from './domain/resume'
 import { compareResumeToJob, type JobMatchResult } from './domain/jobMatch'
 import { ruleBasedProvider } from './services/ai/providers'
 import { translate, type Locale, type TranslationKey } from './i18n'
@@ -19,6 +19,7 @@ type PersistedData = {
   draftText: string
   resolved: string[]
   history: ResumeEvaluation[]
+  correction?: { text: string; value: ExperienceCorrection }
 }
 
 const pageIcons = {
@@ -74,6 +75,8 @@ function App() {
   const [draftText, setDraftText] = useState('')
   const [evaluation, setEvaluation] = useState<ResumeEvaluation | null>(null)
   const [history, setHistory] = useState<ResumeEvaluation[]>([])
+  const [correction, setCorrection] = useState<ExperienceCorrection>({ mode: 'automatic', passages: [] })
+  const [diagnosis, setDiagnosis] = useState<{ interpretation: Interpretation; resume: Resume } | null>(null)
   const [resolved, setResolved] = useState<string[]>([])
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all')
   const [isLoaded, setIsLoaded] = useState(false)
@@ -103,6 +106,7 @@ function App() {
           setDraftText(saved.draftText ?? saved.resume.rawText)
           setResolved(saved.resolved ?? [])
           setHistory(saved.history ?? [])
+          if (saved.correction?.text === (saved.draftText ?? saved.resume.rawText)) setCorrection(saved.correction.value)
         }
       })
       .catch(() => {
@@ -128,7 +132,7 @@ function App() {
     }
     setSaving(true)
     const timer = window.setTimeout(() => {
-      writeLocal<PersistedData>('app-data', { resume, versions, locale, draftText, resolved, history })
+      writeLocal<PersistedData>('app-data', { resume, versions, locale, draftText, resolved, history, correction: { text: draftText, value: correction } })
         .then(() => setSaving(false))
         .catch(() => {
           setStorageAvailable(false)
@@ -137,7 +141,7 @@ function App() {
         })
     }, 350)
     return () => window.clearTimeout(timer)
-  }, [resume, versions, locale, draftText, resolved, history, isLoaded, storageAvailable])
+  }, [resume, versions, locale, draftText, resolved, history, correction, isLoaded, storageAvailable])
 
   const recommendations = evaluation?.recommendations ?? EMPTY_RECOMMENDATIONS
   const visibleRecommendations = useMemo(() => recommendations.filter((item) => {
@@ -161,11 +165,16 @@ function App() {
     setResume(updated)
     setDraftText(updated.rawText)
     setEvaluation(null)
+    setDiagnosis(null)
+    setCorrection({ mode: 'automatic', passages: [] })
   }
 
   function loadText(text: string) {
     setDraftText(text)
     setError('')
+    setEvaluation(null)
+    setDiagnosis(null)
+    setCorrection({ mode: 'automatic', passages: [] })
     const parsed = parseResumeText(text)
     setResume((current) => ({ ...parsed, id: current.id, updatedAt: new Date().toISOString() }))
   }
@@ -176,9 +185,10 @@ function App() {
       setEvaluation(null)
       return
     }
-    const parsed = parseResumeText(draftText)
+    const { resume: parsed, interpretation } = interpretResume(draftText, correction)
     setResume((current) => ({ ...parsed, id: current.id, updatedAt: new Date().toISOString() }))
-    const result = evaluateResume(draftText, parsed)
+    const result = evaluateResume(draftText, parsed, interpretation)
+    setDiagnosis({ resume: parsed, interpretation })
     setEvaluation(result)
     setHistory((items) => [result, ...items].slice(0, 20))
     setResolved([])
@@ -213,6 +223,10 @@ function App() {
     setResume(next)
     setDraftText('')
     setEvaluation(null)
+    setDiagnosis(null)
+    setCorrection({ mode: 'automatic', passages: [] })
+    setDiagnosis(null)
+    setCorrection({ mode: 'automatic', passages: [] })
     setError('')
     navigate('builder')
   }
@@ -228,6 +242,8 @@ function App() {
     setResume(copy)
     setDraftText('')
     setEvaluation(null)
+    setDiagnosis(null)
+    setCorrection({ mode: 'automatic', passages: [] })
     navigate('builder')
   }
 
@@ -245,6 +261,8 @@ function App() {
       setResume(imported)
       setDraftText(imported.rawText)
       setEvaluation(null)
+      setDiagnosis(null)
+      setCorrection({ mode: 'automatic', passages: [] })
       setError('')
       navigate('builder')
     } catch (reason) {
@@ -278,6 +296,8 @@ function App() {
     setImpactDraft('')
     setAnswers({})
     setEvaluation(null)
+    setDiagnosis(null)
+    setCorrection({ mode: 'automatic', passages: [] })
     navigate('builder')
   }
 
@@ -360,16 +380,16 @@ function App() {
           {page === 'home' && <HomePage t={t} navigate={navigate} onCreate={startBlankResume} onFile={handleFile} progress={progress} />}
           {page === 'analyze' && (
             <AnalyzePage
-              t={t} text={draftText} setText={setDraftText} onAnalyze={runAnalysis} onFile={() => fileInput.current?.click()}
+              t={t} text={draftText} setText={(text) => { setDraftText(text); setEvaluation(null); setDiagnosis(null); setCorrection({ mode: 'automatic', passages: [] }) }} onAnalyze={runAnalysis} onFile={() => fileInput.current?.click()}
               progress={progress} isDragging={isDragging} setIsDragging={setIsDragging} onDrop={handleFile}
               evaluation={evaluation} resolved={resolved} onResolve={resolveRecommendation} filter={filter} setFilter={setFilter}
-              visibleRecommendations={visibleRecommendations} locale={locale}
+              visibleRecommendations={visibleRecommendations} locale={locale} diagnosis={diagnosis} correction={correction} setCorrection={setCorrection}
             />
           )}
           {page === 'builder' && <BuilderPage t={t} resume={resume} updateResume={updateResume} onSaveVersion={saveVersion} onPdf={() => void import('./services/exports').then(({ exportResumePdf }) => exportResumePdf(resume))} onDocx={() => void import('./services/exports').then(({ exportResumeDocx }) => exportResumeDocx(resume))} onJson={() => void import('./services/exports').then(({ exportResumeJson }) => exportResumeJson(resume))} onImport={() => backupInput.current?.click()} />}
           {page === 'impact' && <ImpactPage t={t} resume={resume} selectedExperience={selectedExperience} setSelectedExperience={setSelectedExperience} answers={answers} setAnswers={setAnswers} impactDraft={impactDraft} setImpactDraft={setImpactDraft} onBuild={buildImpactDraft} onAccept={acceptImpactDraft} />}
           {page === 'match' && <MatchPage t={t} resume={resume} jobText={jobText} setJobText={setJobText} onCompare={compareJob} onCreateCopy={createTailoredCopy} result={jobMatch} />}
-          {page === 'library' && <LibraryPage t={t} resume={resume} versions={versions} onOpen={(item) => { setResume(item); setDraftText(item.rawText || resumeToText(item)); navigate('builder') }} onSave={saveVersion} />}
+          {page === 'library' && <LibraryPage t={t} resume={resume} versions={versions} onOpen={(item) => { setResume(item); setDraftText(item.rawText || resumeToText(item)); setEvaluation(null); setDiagnosis(null); setCorrection({ mode: 'automatic', passages: [] }); navigate('builder') }} onSave={saveVersion} />}
           {page === 'settings' && <SettingsPage t={t} storageAvailable={storageAvailable} onDelete={deleteAllData} onBackup={() => void import('./services/exports').then(({ exportResumeJson }) => exportResumeJson(resume))} />}
           {page === 'about' && <InfoPage t={t} kind="about" />}
           {page === 'privacy' && <InfoPage t={t} kind="privacy" />}
@@ -445,6 +465,8 @@ function AnalyzePage(props: {
   evaluation: ResumeEvaluation | null; resolved: string[]; onResolve: (item: Recommendation) => void
   filter: 'all' | 'open' | 'resolved'; setFilter: (filter: 'all' | 'open' | 'resolved') => void
   visibleRecommendations: Recommendation[]; locale: Locale
+  diagnosis: { interpretation: Interpretation; resume: Resume } | null
+  correction: ExperienceCorrection; setCorrection: (correction: ExperienceCorrection) => void
 }) {
   const { t } = props
   const [openDetails, setOpenDetails] = useState(true)
@@ -465,12 +487,13 @@ function AnalyzePage(props: {
           <section className="dashboard-summary">
             <div className="score-overview">
               <div className={`big-score ${props.evaluation.overall === null ? 'score-na' : ''}`}><strong>{props.evaluation.overall ?? '—'}</strong><span>{props.evaluation.overall === null ? 'SEM NOTA' : '/ 100'}</span></div>
-              <div><span className="eyebrow">AVALIAÇÃO BEYONDCV · REGRAS {props.evaluation.version}</span><h2>{t('score')}</h2><p>{t('scoreNotice')}</p></div>
+              <div><span className="eyebrow">AVALIAÇÃO BEYONDCV · REGRAS {props.evaluation.version}</span><h2>{t('score')}</h2><p>{props.evaluation.overall === null ? 'Avaliação incompleta: a pontuação geral não foi calculada.' : t('scoreNotice')}</p><p>Cobertura da avaliação: {props.evaluation.coverage}% do peso total.</p></div>
             </div>
             <div className="score-counts"><div><span>{props.evaluation.recommendations.length.toString().padStart(2, '0')}</span><small>{t('recommendations')}</small></div><div><span>{props.evaluation.strengths.length.toString().padStart(2, '0')}</span><small>{t('strengths')}</small></div></div>
           </section>
+          {props.diagnosis && <InterpretationPanel text={props.text} diagnosis={props.diagnosis} coverage={props.evaluation.coverage} correction={props.correction} setCorrection={props.setCorrection} onAnalyze={props.onAnalyze} />}
           <section className="results-grid">
-            <div className="panel category-panel"><PanelHeading title={t('categories')} caption="Critérios determinísticos com pesos definidos" /><div className="category-list">{props.evaluation.categories.map((category) => <div className="category-row" key={category.id}><div className="category-meta"><strong>{category.label}</strong><span>{category.weight}% de peso{category.note ? ` · ${category.note}` : ''}</span></div><div className="category-bar"><i style={{ width: `${category.score ?? 0}%` }} /></div><strong className="category-number">{category.score === null ? 'N/A' : category.score}</strong></div>)}</div></div>
+            <div className="panel category-panel"><PanelHeading title={t('categories')} caption="Critérios determinísticos com pesos definidos" /><div className="category-list">{props.evaluation.categories.map((category) => <div className="category-row" key={category.id}><div className="category-meta"><strong>{category.label}</strong><span>{category.weight}% de peso{category.status === 'unavailable' ? ' · Não avaliada' : category.status === 'not-applicable' ? ' · Não aplicável' : ''}{category.note ? ` · ${category.note}` : ''}</span></div><div className="category-bar"><i style={{ width: `${category.score ?? 0}%` }} /></div><strong className="category-number">{category.score === null ? '—' : category.score}</strong></div>)}</div></div>
             <div className="panel strengths-panel"><PanelHeading title={t('strengths')} caption="Informações identificadas no texto" />{props.evaluation.strengths.length ? <ul className="clean-list">{props.evaluation.strengths.map((strength) => <li key={strength}><CheckCircle2 size={16} />{strength}</li>)}</ul> : <p className="muted-copy">Ainda não foi possível confirmar pontos fortes no texto extraído.</p>}<PanelHeading title={t('limitations')} caption="O que esta pontuação não pode informar" /><ul className="limits-list">{props.evaluation.limitations.map((item) => <li key={item}>{item}</li>)}</ul></div>
           </section>
           <section className="recommendations-section">
@@ -483,9 +506,63 @@ function AnalyzePage(props: {
         </div>
       ) : <div className="analysis-empty"><div className="empty-score">—</div><div><strong>{t('analysisEmpty')}</strong><p>A extração de PDF pode omitir conteúdo de documentos digitalizados ou com colunas complexas. Confira o texto antes de continuar.</p></div></div>}
       <div className="method-note"><ShieldCheck size={16} /><span>Esta pontuação do projeto não é uma certificação, uma medida universal de sistemas ATS nem uma previsão de contratação.</span><button onClick={() => setOpenDetails(!openDetails)}>{openDetails ? 'Ocultar' : 'Ver'} detalhes</button></div>
-      {openDetails && <div className="method-details">A versão {props.evaluation?.version ?? '1.0.0'} das regras utiliza sete categorias com pesos. Categorias que não podem ser avaliadas são excluídas da média. Datas e telefones não são considerados métricas de impacto. Nenhuma IA ou serviço externo é utilizado.</div>}
+      {openDetails && <div className="method-details">A versão {props.evaluation?.version ?? '1.1.0'} usa sete categorias. A pontuação geral exige cobertura de pelo menos 80% e interpretação suficiente das experiências. Datas e telefones não são considerados métricas de impacto. Nenhuma IA ou serviço externo é utilizado.</div>}
     </div>
   )
+}
+
+function InterpretationPanel({ text, diagnosis, coverage, correction, setCorrection, onAnalyze }: {
+  text: string; diagnosis: { interpretation: Interpretation; resume: Resume }; coverage: number
+  correction: ExperienceCorrection; setCorrection: (correction: ExperienceCorrection) => void; onAnalyze: () => void
+}) {
+  const [selection, setSelection] = useState('')
+  const labels: Record<Interpretation['status'], string> = {
+    high: 'Identificada com alta confiança', partial: 'Identificada parcialmente',
+    potential: 'Potencialmente presente, mas não identificada', absent: 'Ausência confirmada por você',
+    failure: 'Falha de interpretação ou texto insuficiente',
+  }
+  const { interpretation, resume } = diagnosis
+  const invalidDetails = correction.mode === 'selected' && correction.passages.some((passage, index) =>
+    Object.values(correction.details?.[index] ?? {}).some((value) => value.trim() && !passage.includes(value.trim())),
+  )
+  return <details className="panel interpretation-panel" open={interpretation.status !== 'high' ? true : undefined}>
+    <summary>Como interpretamos seu currículo</summary>
+    <p><strong>Confiança na interpretação das experiências:</strong> {labels[interpretation.status]}. <strong>Cobertura:</strong> {coverage}%.</p>
+    <p>As informações são sugestões de interpretação, não fatos verificados. Uma falha de leitura não significa ausência de experiência nem incompatibilidade com sistemas ATS.</p>
+    <h3>Seções identificadas</h3>
+    {interpretation.sections.length ? <ul>{interpretation.sections.map((section, index) => <li key={`${section.label}-${index}`}>{section.label} — {section.confidence === 'high' ? 'alta confiança' : 'confiança parcial'}</li>)}</ul> : <p>Nenhuma seção identificada com confiança.</p>}
+    <h3>Experiências identificadas</h3>
+    {resume.experiences.length ? <ul>{resume.experiences.map((item) => <li key={item.id}><strong>Cargo:</strong> {item.role || 'Não identificado'} · <strong>Empresa:</strong> {item.company || 'Não identificada'} · <strong>Período:</strong> {item.dates || 'Não identificado'}<p>{item.description || 'Descrição não identificada.'}</p></li>)}</ul> : <p>Nenhuma experiência identificada com segurança.</p>}
+    <h3>Indicadores de impacto encontrados</h3>
+    {interpretation.impactIndicators.length ? <ul>{interpretation.impactIndicators.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p>Nenhum indicador identificado; isso não comprova ausência de resultados.</p>}
+    <h3>Informações não classificadas</h3>
+    {interpretation.unclassified.length ? <pre>{interpretation.unclassified.join('\n')}</pre> : <p>Nenhuma informação não classificada identificada.</p>}
+    <label className="field-label" htmlFor="diagnostic-original">Texto original extraído <span>Selecione um trecho correspondente a uma experiência, sem modificar o currículo.</span></label>
+    <textarea id="diagnostic-original" className="field-textarea" readOnly value={text} onSelect={(event) => {
+      const element = event.currentTarget
+      setSelection(element.value.slice(element.selectionStart, element.selectionEnd).trim())
+    }} onMouseUp={(event) => {
+      const element = event.currentTarget
+      setSelection(element.value.slice(element.selectionStart, element.selectionEnd).trim())
+    }} onKeyUp={(event) => {
+      const element = event.currentTarget
+      setSelection(element.value.slice(element.selectionStart, element.selectionEnd).trim())
+    }} />
+    <div className="diagnostic-actions">
+      <button className="button button-secondary" disabled={!selection} onClick={() => { setCorrection({ mode: 'selected', passages: [...(correction.mode === 'selected' ? correction.passages : []), selection], details: [...(correction.mode === 'selected' ? correction.details ?? correction.passages.map(() => ({ role: '', company: '', dates: '' })) : []), { role: '', company: '', dates: '' }] }); setSelection('') }}>Classificar trecho selecionado como experiência</button>
+      <button className="button button-secondary" onClick={() => setCorrection({ mode: 'absent', passages: [] })}>Confirmar que não há experiência profissional</button>
+      <button className="button button-quiet" onClick={() => setCorrection({ mode: 'automatic', passages: [] })}>Restaurar classificação automática</button>
+    </div>
+    {correction.mode === 'selected' && <div><strong>Trechos selecionados para a próxima análise:</strong>{correction.passages.map((passage, index) => <div key={index} className="diagnostic-passage"><pre>{passage}</pre><p>Opcional: corrija os campos usando apenas texto deste trecho. Deixe em branco para manter a identificação automática.</p><div className="form-grid">{([['role', 'Cargo'], ['company', 'Empresa'], ['dates', 'Período']] as const).map(([field, label]) => <label className="field-label" key={field}>{label} da experiência {index + 1}<input className="field-input" value={correction.details?.[index]?.[field] ?? ''} onChange={(event) => {
+      const details = correction.passages.map((_, itemIndex) => correction.details?.[itemIndex] ?? { role: '', company: '', dates: '' })
+      details[index] = { ...details[index], [field]: event.target.value }
+      setCorrection({ ...correction, details })
+    }} /></label>)}</div><button className="button button-quiet" onClick={() => { const passages = correction.passages.filter((_, itemIndex) => itemIndex !== index); const details = correction.details?.filter((_, itemIndex) => itemIndex !== index); setCorrection(passages.length ? { mode: 'selected', passages, details } : { mode: 'automatic', passages: [] }) }}>Remover trecho {index + 1}</button></div>)}</div>}
+    {invalidDetails && <p role="alert">Cargo, empresa e período devem corresponder ao texto do trecho selecionado.</p>}
+    {correction.mode === 'absent' && <p>Você indicou que não há experiência profissional. As categorias correspondentes serão não aplicáveis.</p>}
+    <p>Após alterar a classificação, reexecute a análise para atualizar a cobertura e os resultados.</p>
+    <button className="button button-primary" disabled={invalidDetails} onClick={onAnalyze}>Reexecutar análise com esta classificação</button>
+  </details>
 }
 
 function RecommendationCard({ item, locale, resolved, onResolve, t }: { item: Recommendation; locale: Locale; resolved: boolean; onResolve: () => void; t: (key: TranslationKey) => string }) {
@@ -614,7 +691,7 @@ function SettingsPage({ t, storageAvailable, onDelete, onBackup }: { t: (key: Tr
 
 function InfoPage({ t, kind }: { t: (key: TranslationKey) => string; kind: 'about' | 'privacy' | 'methodology' }) {
   if (kind === 'privacy') return <div className="work-page info-page"><PageIntro eyebrow="PRIVACIDADE DESDE A CONCEPÇÃO" title="Sua história profissional continua sendo sua." description="O BeyondCV foi criado para ajudar sem coletar seus dados profissionais." /><div className="info-columns"><section className="panel info-panel"><LockKeyhole size={19} /><h3>Processamento no navegador</h3><p>Currículos e descrições de vagas são lidos e analisados localmente. Esta versão não envia o conteúdo a servidores ou APIs de terceiros.</p></section><section className="panel info-panel"><ShieldCheck size={19} /><h3>Armazenamento local</h3><p>Quando disponível, o IndexedDB armazena rascunhos e versões neste dispositivo. Você pode exportar uma cópia ou excluir os dados nas configurações.</p></section><section className="panel info-panel"><Globe2 size={19} /><h3>Downloads de modelos de IA</h3><p>A IA local está indisponível nesta versão. Caso seja adicionada no futuro, o download de modelos será informado separadamente; o currículo não deve ser enviado aos servidores dos modelos.</p></section></div><p className="legal-note">Esta descrição reflete a versão atual e não representa certificação ou declaração de conformidade legal. Seu navegador, extensões ou dispositivo podem tratar dados de outra forma.</p></div>
-  if (kind === 'methodology') return <div className="work-page info-page"><PageIntro eyebrow="REGRAS TRANSPARENTES" title={t('methodology')} description="Uma avaliação determinística e versionada que identifica informações no texto, não seu valor ou sua chance de contratação." /><div className="panel methodology-panel"><p>A versão 1.0.0 das regras usa categorias com pesos. Cada categoria começa em 100 e aplica deduções documentadas para padrões identificáveis. A pontuação geral é a média ponderada apenas das categorias avaliadas.</p><div className="methodology-table">{[['Compatibilidade com ATS', '20%'], ['Impacto profissional e resultados', '25%'], ['Qualidade das experiências', '20%'], ['Estrutura e organização', '10%'], ['Competências e palavras-chave', '10%'], ['Completude das informações', '10%'], ['Clareza e comunicação', '5%']].map(([label, weight]) => <div key={label}><span>{label}</span><strong>{weight}</strong></div>)}</div><h3>Evidências e limitações</h3><p>O analisador identifica títulos comuns, responsabilidades genéricas, linguagem de ação, indicadores simples de impacto e seções ausentes. Datas e telefones não são considerados métricas de impacto. Entregas qualitativas podem servir como evidência; métricas quantitativas não são obrigatórias.</p><p>Categorias sem evidências aplicáveis podem ser excluídas. Se houver pouco texto legível, nenhuma pontuação geral será exibida. Documentos digitalizados, colunas, termos específicos e contexto podem limitar a precisão. As recomendações não são instruções para adicionar informações sem comprovação.</p><p>A pontuação BeyondCV é uma avaliação do projeto, não uma certificação ATS, padrão universal ou previsão de contratação. Diferentes sistemas ATS funcionam de maneiras distintas.</p></div></div>
+  if (kind === 'methodology') return <div className="work-page info-page"><PageIntro eyebrow="REGRAS TRANSPARENTES" title={t('methodology')} description="Uma avaliação determinística e versionada que identifica informações no texto, não seu valor ou sua chance de contratação." /><div className="panel methodology-panel"><p>A versão 1.1.0 das regras usa categorias com pesos. Cada categoria começa em 100 e aplica deduções documentadas para padrões identificáveis. A cobertura corresponde à soma dos pesos efetivamente avaliados.</p><div className="methodology-table">{[['Compatibilidade com ATS', '20%'], ['Impacto profissional e resultados', '25%'], ['Qualidade das experiências', '20%'], ['Estrutura e organização', '10%'], ['Competências e palavras-chave', '10%'], ['Completude das informações', '10%'], ['Clareza e comunicação', '5%']].map(([label, weight]) => <div key={label}><span>{label}</span><strong>{weight}</strong></div>)}</div><h3>Evidências e limitações</h3><p>O analisador identifica títulos comuns, responsabilidades genéricas, linguagem de ação e indicadores simples de impacto. Datas e telefones não são considerados métricas de impacto. Entregas qualitativas podem servir como evidência; métricas quantitativas não são obrigatórias.</p><p>A pontuação geral não é calculada abaixo de 80% de cobertura ou quando as experiências não podem ser avaliadas com confiança. Uma falha de interpretação não significa ausência de experiência. Você pode identificar trechos ou confirmar que essa categoria não se aplica. Documentos digitalizados, colunas e contexto podem limitar a precisão.</p><p>A pontuação BeyondCV é uma avaliação do projeto, não uma certificação ATS, padrão universal ou previsão de contratação. Diferentes sistemas ATS funcionam de maneiras distintas.</p></div></div>
   return <div className="work-page info-page"><PageIntro eyebrow="MUITO ALÉM DE UM CURRÍCULO" title={t('about')} description="Muito além de um currículo." /><div className="about-mission"><span className="brand-mark large-mark">b<span>.</span></span><div><h2>Ferramentas de carreira devem ser acessíveis a todas as pessoas.</h2><p>O BeyondCV é um projeto gratuito e de código aberto que ajuda pessoas a criar, entender e melhorar currículos sem cobrança ou cadastro obrigatório. Nosso compromisso: nunca inventar experiências, competências ou resultados.</p><div className="principle-tags"><span>Gratuito para sempre</span><span>Privacidade em primeiro lugar</span><span>Código aberto</span><span>Sem cadastro</span></div></div></div><div className="about-note"><Github size={17} /><div><strong>Desenvolvido de forma aberta</strong><p>O código-fonte está disponível no GitHub sob a licença MIT.</p></div></div></div>
 }
 

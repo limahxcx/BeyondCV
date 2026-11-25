@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { jsPDF } from 'jspdf'
 
 const resumeText = `Taylor Morgan
 taylor@example.com
@@ -76,6 +77,61 @@ const routes = [
   ['/scoring-methodology', 'Metodologia de avaliação'],
 ] as const
 
+test('permite corrigir interpretação sem alterar o currículo e reavaliar a cobertura', async ({ page }) => {
+  const passage = 'Engineering Manager | Example Labs | 2020 - 2024\n• Improved delivery time by 40% for the team.'
+  const text = `Luisa Exemplo\nluisa@example.com\n${passage}\nEducation\nComputer Science`
+  await page.goto('/resume-analyzer')
+  const original = page.locator('#resume-text')
+  await original.fill(text)
+  await page.getByRole('button', { name: 'Analisar currículo', exact: true }).last().click()
+  await expect(page.getByText('Avaliação incompleta: a pontuação geral não foi calculada.')).toBeVisible()
+  await expect(page.getByText(/Identificada parcialmente/)).toBeVisible()
+  const diagnostic = page.locator('#diagnostic-original')
+  await diagnostic.evaluate((element: HTMLTextAreaElement, value) => {
+    const start = element.value.indexOf(value)
+    element.focus()
+    element.setSelectionRange(start, start + value.length)
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  }, passage)
+  await page.getByRole('button', { name: 'Classificar trecho selecionado como experiência' }).click()
+  await page.getByRole('textbox', { name: 'Empresa da experiência 1' }).fill('Empresa inventada')
+  await expect(page.getByRole('alert')).toHaveText('Cargo, empresa e período devem corresponder ao texto do trecho selecionado.')
+  await expect(page.getByRole('button', { name: 'Reexecutar análise com esta classificação' })).toBeDisabled()
+  await page.getByRole('textbox', { name: 'Empresa da experiência 1' }).fill('Example Labs')
+  await page.getByRole('button', { name: 'Reexecutar análise com esta classificação' }).click()
+  await expect(page.getByText('Cobertura da avaliação: 100% do peso total.')).toBeVisible()
+  await expect(page.locator('.big-score strong')).not.toHaveText('—')
+  await expect(original).toHaveValue(text)
+  await page.getByText('Como interpretamos seu currículo').click()
+  await expect(page.getByText('Example Labs', { exact: false }).first()).toBeVisible()
+  await expect(page.getByText('Improved delivery time by 40%', { exact: false }).first()).toBeVisible()
+})
+
+test('importa PDF com múltiplas experiências e calcula as categorias essenciais', async ({ page }) => {
+  const pdf = new jsPDF({ unit: 'pt' })
+  const lines = [
+    'Jordan Example', 'jordan@example.com', 'PROFESSIONAL EXPERIENCE',
+    'Engineering Manager | Example Labs | 2020 - 2024',
+    'Improved delivery time by 40 percent for multiple teams.',
+    'Senior Engineer | Example Systems | 2016 - 2019',
+    'Delivered a platform that reduced processing time.',
+    'EDUCATION', 'Computer Science', 'SKILLS', 'Engineering, management, planning',
+  ]
+  lines.forEach((line, index) => pdf.text(line, 40, 50 + index * 24))
+  await page.goto('/resume-analyzer')
+  await page.locator('input[type=file][accept^=".pdf"]').last().setInputFiles({
+    name: 'curriculo.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf.output('arraybuffer')),
+  })
+  await expect(page.locator('#resume-text')).toHaveValue(/Engineering Manager/)
+  await expect(page.locator('#resume-text')).toHaveValue(/Senior Engineer/)
+  await page.getByRole('button', { name: 'Analisar currículo', exact: true }).last().click()
+  await expect(page.getByText('Cobertura da avaliação: 100% do peso total.')).toBeVisible()
+  await expect(page.locator('.big-score strong')).not.toHaveText('—')
+  await page.getByText('Como interpretamos seu currículo').click()
+  await expect(page.getByText('Example Labs', { exact: false }).first()).toBeVisible()
+  await expect(page.getByText('Example Systems', { exact: false }).first()).toBeVisible()
+})
+
 test('mantém entrevista, editor, comparação e importação e exportação de documentos', async ({ page }) => {
   const externalRequests: string[] = []
   page.on('request', (request) => {
@@ -147,12 +203,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1366, height: 768 
 test('atualiza o cache antigo da PWA e mantém a navegação offline', async ({ page, context }) => {
   await page.goto('/')
   await page.evaluate(async () => {
-    await caches.open('beyondcv-shell-v1')
+    await caches.open('beyondcv-shell-v2')
     await navigator.serviceWorker.register('/sw.js')
     await navigator.serviceWorker.ready
   })
-  await expect.poll(() => page.evaluate(() => caches.keys())).toContain('beyondcv-shell-v2')
-  await expect.poll(() => page.evaluate(() => caches.keys())).not.toContain('beyondcv-shell-v1')
+  await expect.poll(() => page.evaluate(() => caches.keys())).toContain('beyondcv-shell-v3')
+  await expect.poll(() => page.evaluate(() => caches.keys())).not.toContain('beyondcv-shell-v2')
   await page.reload()
   await context.setOffline(true)
   await page.goto('/resume-analyzer')

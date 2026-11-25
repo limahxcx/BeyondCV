@@ -35,7 +35,7 @@ npm run preview
 ## Features
 
 - Import selectable text from PDF, DOCX, and TXT files (10 MB limit), or paste text.
-- Review extracted text before running a deterministic, versioned assessment.
+- Review extracted text, inspect interpretation confidence and coverage, and manually classify experience passages before rerunning a deterministic, versioned assessment.
 - Explore category scores, strengths, limitations, and prioritized recommendations.
 - Edit resume content and export selectable-text PDF, DOCX, or JSON backup.
 - Use a guided interview to add only details confirmed by the user.

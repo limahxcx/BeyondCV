@@ -1,6 +1,6 @@
-import type { Resume } from './resume'
+import { interpretResume, type Interpretation, type Resume } from './resume'
 
-export const SCORING_VERSION = '1.0.0'
+export const SCORING_VERSION = '1.1.0'
 
 export type Severity = 'Critical' | 'High' | 'Medium' | 'Low'
 export type CategoryId = 'ats' | 'impact' | 'experience' | 'structure' | 'skills' | 'completeness' | 'clarity'
@@ -25,12 +25,14 @@ export type CategoryScore = {
   weight: number
   score: number | null
   assessed: boolean
+  status: 'assessed' | 'unavailable' | 'not-applicable'
   note?: string
 }
 
 export type ResumeEvaluation = {
   version: string
   overall: number | null
+  coverage: number
   categories: CategoryScore[]
   recommendations: Recommendation[]
   strengths: string[]
@@ -56,8 +58,8 @@ type Finding = Omit<Recommendation, 'id'> & { deduction: number }
 
 function hasImpactEvidence(text: string): boolean {
   const normalized = text.toLocaleLowerCase()
-  const qualitativeEvidence = /\b(?:delivered|launched|improv\w*|reduc\w*|increas\w*|automated|streamlin\w*|resolved|established|resulted|enabled|strengthened|increased|decreased|improv\w*|reduz\w*|aument\w*|melhor\w*|entreg\w*|resolv\w*|estabelec\w*|permitiu|gerou|resultado|mejor\w*|entreg\w*|resolv\w*|establec\w*|permitió|generó|resultado)\b/i.test(normalized)
-  const numericEvidence = /\b\d+(?:[.,]\d+)?\s*(?:%|percent|clientes|customers|usuários|users|usuarios|horas|hours|dias|days|equipes|teams|sistemas|systems|projetos|projects|milhões|million|k|x)\b/i.test(normalized)
+  const qualitativeEvidence = /(?:^|[^\p{L}])(?:delivered|launched|improv\p{L}*|reduc\p{L}*|increas\p{L}*|automated|streamlin\p{L}*|resolved|established|resulted|enabled|strengthened|decreased|reduz\p{L}*|aument\p{L}*|melhor\p{L}*|entreg\p{L}*|resolv\p{L}*|estabelec\p{L}*|permitiu|gerou|resultado|mejor\p{L}*|reduj\p{L}*|establec\p{L}*|permitió|generó)(?!\p{L})/iu.test(normalized)
+  const numericEvidence = /\b\d+(?:[.,]\d+)?\s*(?:%|(?:percent|clientes|customers|usuários|users|usuarios|horas|hours|dias|days|equipes|teams|sistemas|systems|projetos|projects|milhões|million|k|x)(?!\p{L}))/iu.test(normalized)
   return qualitativeEvidence || numericEvidence
 }
 
@@ -180,13 +182,14 @@ function findingsFor(text: string, resume: Resume): Finding[] {
   return findings
 }
 
-export function evaluateResume(text: string, resume: Resume): ResumeEvaluation {
+export function evaluateResume(text: string, resume: Resume, interpretation: Interpretation = interpretResume(text).interpretation): ResumeEvaluation {
   const cleanText = text.trim()
   if (cleanText.length < 40) {
     return {
       version: SCORING_VERSION,
       overall: null,
-      categories: categoryConfig.map((category) => ({ ...category, score: null, assessed: false, note: 'Não há texto suficiente para uma avaliação confiável.' })),
+      coverage: 0,
+      categories: categoryConfig.map((category) => ({ ...category, score: null, assessed: false, status: 'unavailable', note: 'Não há texto suficiente para uma avaliação confiável.' })),
       recommendations: [],
       strengths: [],
       limitations: ['Não há texto legível suficiente para calcular uma pontuação confiável. Revise a extração ou acrescente conteúdo.'],
@@ -196,14 +199,20 @@ export function evaluateResume(text: string, resume: Resume): ResumeEvaluation {
   const findings = findingsFor(cleanText, resume)
   const categories: CategoryScore[] = categoryConfig.map((category) => {
     const scoped = findings.filter((item) => item.category === category.id)
-    const assessed = !(['experience', 'impact'] as CategoryId[]).includes(category.id) || resume.experiences.length > 0
-    const score = assessed ? Math.max(0, 100 - scoped.reduce((total, item) => total + item.deduction, 0)) : null
-    return { ...category, score, assessed, note: assessed ? undefined : 'Nenhuma seção de experiência identificada; categoria excluída da média ponderada.' }
+    const experienceCategory = category.id === 'experience' || category.id === 'impact'
+    const failure = interpretation.status === 'failure'
+    const uncertain = interpretation.status === 'potential' || interpretation.status === 'partial'
+    const notApplicable = experienceCategory && interpretation.status === 'absent'
+    const preliminary = Math.max(0, 100 - scoped.reduce((total, item) => total + item.deduction, 0))
+    const unavailable = failure || (experienceCategory && uncertain) || (category.id === 'ats' && uncertain && preliminary === 100)
+    const assessed = !notApplicable && !unavailable
+    const note = notApplicable ? 'Não aplicável: ausência de experiência confirmada por você.' : unavailable ? 'Não foi possível avaliar com confiança. Revise a interpretação; isso não comprova incompatibilidade com sistemas ATS.' : undefined
+    return { ...category, score: assessed ? preliminary : null, assessed, status: notApplicable ? 'not-applicable' : unavailable ? 'unavailable' : 'assessed', note }
   })
   const applicable = categories.filter((category): category is CategoryScore & { score: number } => category.assessed && category.score !== null)
   const weightTotal = applicable.reduce((total, category) => total + category.weight, 0)
-  const overall = Math.round(applicable.reduce((total, category) => total + category.score * category.weight, 0) / weightTotal)
-  const recommendations = findings.map((item, index): Recommendation => ({
+  const overall = weightTotal >= 80 && !categories.some((category) => category.status === 'unavailable' && (category.id === 'experience' || category.id === 'impact')) ? Math.round(applicable.reduce((total, category) => total + category.score * category.weight, 0) / weightTotal) : null
+  const recommendations = findings.filter((item) => categories.find((category) => category.id === item.category)?.assessed).map((item, index): Recommendation => ({
     id: `${SCORING_VERSION}-${index + 1}`,
     category: item.category,
     severity: item.severity,
@@ -217,14 +226,15 @@ export function evaluateResume(text: string, resume: Resume): ResumeEvaluation {
     suggestion: item.suggestion,
   }))
   const strengths: string[] = []
-  if (resume.experiences.length > 0) strengths.push('Experiências profissionais foram identificadas e avaliadas.')
+  if (resume.experiences.length > 0 && interpretation.status === 'high') strengths.push('Experiências profissionais foram identificadas e avaliadas.')
   if (resume.education.length > 0) strengths.push('Informações de formação ou cursos foram identificadas.')
   if (resume.skills.length > 0) strengths.push('Uma seção de competências foi identificada.')
-  if (resume.experiences.some((item) => hasImpactEvidence(item.description))) strengths.push('Ao menos uma experiência inclui uma ação concreta ou resultado.')
+  if (interpretation.status === 'high' && resume.experiences.some((item) => hasImpactEvidence(item.description))) strengths.push('Ao menos uma experiência inclui uma ação concreta ou resultado.')
   const limitations = [
     'Esta análise usa padrões de texto e pode não compreender todas as profissões, formatos ou resultados.',
     'A pontuação BeyondCV é uma avaliação do projeto, não uma certificação ATS ou previsão de contratação.',
     'Imagens digitalizadas e formatos complexos podem não preservar a ordem de leitura. Compare o texto extraído com o original.',
   ]
-  return { version: SCORING_VERSION, overall, categories, recommendations, strengths, limitations, assessedAt: new Date().toISOString() }
+  if (overall === null) limitations.unshift('Avaliação incompleta: revise a interpretação. Uma categoria não avaliada não representa um problema no currículo.')
+  return { version: SCORING_VERSION, overall, coverage: weightTotal, categories, recommendations, strengths, limitations, assessedAt: new Date().toISOString() }
 }
