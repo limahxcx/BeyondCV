@@ -1,0 +1,17 @@
+{
+  "name": "BeyondCV",
+  "short_name": "BeyondCV",
+  "description": "Your potential, unlocked.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f8fa",
+  "theme_color": "#f7f8fa",
+  "icons": [
+    {
+      "src": "/beyondcv.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
