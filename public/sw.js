@@ -1,4 +1,4 @@
-const CACHE = 'beyondcv-shell-v1'
+const CACHE = 'beyondcv-shell-v2'
 const SHELL = ['/', '/manifest.webmanifest', '/beyondcv.svg']
 
 self.addEventListener('install', (event) => {

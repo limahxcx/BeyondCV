@@ -18,7 +18,7 @@ export function createResumePdf(resume: Resume): jsPDF {
   const text = resumeToText(resume)
   const paragraphs = text.split(/\n/)
   for (const [index, paragraph] of paragraphs.entries()) {
-    const isHeading = /^[A-Z][A-Z &]+$/.test(paragraph.trim()) && paragraph.trim().length < 40
+    const isHeading = /^\p{Lu}[\p{Lu} &]+$/u.test(paragraph.trim()) && paragraph.trim().length < 40
     const isName = index === 0
     pdf.setFont('helvetica', isHeading || isName ? 'bold' : 'normal')
     pdf.setFontSize(isName ? (resume.template === 'executive' ? 19 : 17) : isHeading ? 12 : 10)
@@ -43,7 +43,7 @@ export async function exportResumeDocx(resume: Resume): Promise<void> {
 export async function createResumeDocx(resume: Resume): Promise<Blob> {
   const text = resumeToText(resume)
   const paragraphs = text.split(/\n/).map((line, index) => {
-    const heading = /^[A-Z][A-Z &]+$/.test(line.trim()) && line.trim().length < 40
+    const heading = /^\p{Lu}[\p{Lu} &]+$/u.test(line.trim()) && line.trim().length < 40
     return new Paragraph({
       heading: heading ? HeadingLevel.HEADING_2 : undefined,
       children: [new TextRun({ text: line, bold: heading || index === 0, size: index === 0 && resume.template === 'executive' ? 36 : 24, color: index === 0 && resume.template === 'modern' ? '3157D5' : '303746' })],

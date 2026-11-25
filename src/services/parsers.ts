@@ -6,14 +6,16 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
 
+export class ResumeFileError extends Error {}
+
 export async function extractResumeFile(file: File, onProgress?: (percent: number) => void): Promise<string> {
-  if (file.size > MAX_FILE_BYTES) throw new Error('This file is larger than 10 MB. Choose a smaller file.')
+  if (file.size > MAX_FILE_BYTES) throw new ResumeFileError('O arquivo ultrapassa 10 MB. Escolha um arquivo menor.')
   const extension = file.name.split('.').pop()?.toLocaleLowerCase()
   onProgress?.(10)
   if (extension === 'txt') {
     const text = await file.text()
     onProgress?.(100)
-    if (!text.trim()) throw new Error('The text file is empty.')
+    if (!text.trim()) throw new ResumeFileError('O arquivo de texto está vazio.')
     return text
   }
   const buffer = await file.arrayBuffer()
@@ -21,7 +23,7 @@ export async function extractResumeFile(file: File, onProgress?: (percent: numbe
   if (extension === 'docx') {
     const result = await mammoth.extractRawText({ arrayBuffer: buffer })
     onProgress?.(100)
-    if (!result.value.trim()) throw new Error('No readable text was found in this DOCX file.')
+    if (!result.value.trim()) throw new ResumeFileError('Nenhum texto legível foi encontrado no arquivo DOCX.')
     return result.value
   }
   if (extension === 'pdf') {
@@ -35,11 +37,11 @@ export async function extractResumeFile(file: File, onProgress?: (percent: numbe
         onProgress?.(30 + Math.round((pageNumber / document.numPages) * 70))
       }
       const text = pages.join('\n\n').trim()
-      if (!text) throw new Error('No selectable text was found. This may be a scanned PDF; OCR is not available in this version. Paste the text or use a text-based PDF.')
+      if (!text) throw new ResumeFileError('Nenhum texto selecionável foi encontrado. O PDF pode ser digitalizado; OCR não está disponível nesta versão. Cole o texto ou use um PDF com texto selecionável.')
       return text
     } finally {
       await document.destroy()
     }
   }
-  throw new Error('Unsupported file type. Choose a PDF, DOCX, or TXT file.')
+  throw new ResumeFileError('Formato não aceito. Escolha um arquivo PDF, DOCX ou TXT.')
 }

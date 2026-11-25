@@ -1,7 +1,8 @@
 {
   "name": "BeyondCV",
   "short_name": "BeyondCV",
-  "description": "Your potential, unlocked.",
+  "description": "Muito além de um currículo.",
+  "lang": "pt-BR",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f7f8fa",

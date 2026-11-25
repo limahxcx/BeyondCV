@@ -199,13 +199,13 @@ export function parseResumeText(text: string): Resume {
 
 export function resumeToText(resume: Resume): string {
   const sections: Record<string, string> = {
-    summary: resume.summary ? `SUMMARY\n${resume.summary}` : '',
-    experiences: resume.experiences.length ? `EXPERIENCE\n${resume.experiences.map((item) => `${item.role}${item.company ? ` | ${item.company}` : ''}${item.dates ? ` | ${item.dates}` : ''}\n${item.description}`).join('\n\n')}` : '',
-    education: resume.education.length ? `EDUCATION\n${resume.education.join('\n')}` : '',
-    certifications: resume.certifications.length ? `CERTIFICATIONS\n${resume.certifications.join('\n')}` : '',
-    skills: resume.skills.length ? `SKILLS\n${resume.skills.join(', ')}` : '',
-    languages: resume.languages.length ? `LANGUAGES\n${resume.languages.join('\n')}` : '',
-    projects: resume.projects.length ? `PROJECTS\n${resume.projects.join('\n')}` : '',
+    summary: resume.summary ? `RESUMO PROFISSIONAL\n${resume.summary}` : '',
+    experiences: resume.experiences.length ? `EXPERIÊNCIA PROFISSIONAL\n${resume.experiences.map((item) => `${item.role}${item.company ? ` | ${item.company}` : ''}${item.dates ? ` | ${item.dates}` : ''}\n${item.description}`).join('\n\n')}` : '',
+    education: resume.education.length ? `FORMAÇÃO\n${resume.education.join('\n')}` : '',
+    certifications: resume.certifications.length ? `CERTIFICAÇÕES\n${resume.certifications.join('\n')}` : '',
+    skills: resume.skills.length ? `COMPETÊNCIAS\n${resume.skills.join(', ')}` : '',
+    languages: resume.languages.length ? `IDIOMAS\n${resume.languages.join('\n')}` : '',
+    projects: resume.projects.length ? `PROJETOS\n${resume.projects.join('\n')}` : '',
   }
   const header = [resume.name, resume.email, resume.phone, resume.location, ...resume.links].filter(Boolean).join('\n')
   const ordered = resume.sectionOrder.map((key) => sections[key]).filter((section): section is string => Boolean(section))

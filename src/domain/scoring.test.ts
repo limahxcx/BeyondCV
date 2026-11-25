@@ -26,10 +26,11 @@ describe('resume scoring', () => {
   it('identifies generic responsibilities and provides contextual questions', () => {
     const resume = parseResumeText(genericResume)
     const result = evaluateResume(genericResume, resume)
-    const generic = result.recommendations.find((item) => item.title === 'Replace generic responsibility phrasing')
+    const generic = result.recommendations.find((item) => item.title === 'Torne a descrição da responsabilidade mais específica')
     expect(generic?.original).toContain('Responsible for')
     expect(generic?.questions.length).toBeGreaterThan(0)
-    expect(result.recommendations.some((item) => item.title === 'Make contributions and outcomes clearer')).toBe(true)
+    expect(result.recommendations.some((item) => item.title === 'Deixe suas contribuições e resultados mais claros')).toBe(true)
+    expect(generic?.questions[0]).toBe('O que você criou, mudou, decidiu ou entregou pessoalmente?')
   })
 
   it('recognizes qualitative delivery without requiring a number', () => {
@@ -46,8 +47,8 @@ Scheduling, inventory`
     const result = evaluateResume(text, resume)
     expect(resume.experiences).toHaveLength(1)
     expect(resume.experiences[0]?.description).toContain('Implemented')
-    expect(result.strengths).toContain('At least one experience includes a concrete action or outcome.')
-    expect(result.recommendations.some((item) => item.title === 'Make contributions and outcomes clearer')).toBe(false)
+    expect(result.strengths).toContain('Ao menos uma experiência inclui uma ação concreta ou resultado.')
+    expect(result.recommendations.some((item) => item.title === 'Deixe suas contribuições e resultados mais claros')).toBe(false)
   })
 
   it('recognizes result metrics and resumes in Portuguese and Spanish', () => {
@@ -71,11 +72,16 @@ Habilidades
 Operaciones`
     const ptResume = parseResumeText(portuguese)
     const esResume = parseResumeText(spanish)
+    expect(ptResume.rawText).toBe(portuguese)
+    expect(esResume.rawText).toBe(spanish)
     expect(ptResume.experiences).toHaveLength(1)
     expect(ptResume.skills).toContain('Operações')
-    expect(evaluateResume(portuguese, ptResume).strengths).toContain('At least one experience includes a concrete action or outcome.')
+    expect(evaluateResume(portuguese, ptResume).strengths).toContain('Ao menos uma experiência inclui uma ação concreta ou resultado.')
     expect(esResume.experiences).toHaveLength(1)
     expect(esResume.education).toContain('Formación técnica')
+    const esResult = evaluateResume(spanish, esResume)
+    expect(esResult.overall).not.toBeNull()
+    expect(esResult.strengths).toContain('Ao menos uma experiência inclui uma ação concreta ou resultado.')
   })
 
   it('does not reduce completeness for not listing education', () => {
@@ -108,7 +114,7 @@ Scheduling`
     const result = evaluateResume(text, resume)
     expect(resume.experiences).toHaveLength(1)
     expect(resume.phone).toBe('555-010-1020')
-    expect(result.recommendations.some((item) => item.title === 'Make contributions and outcomes clearer')).toBe(true)
+    expect(result.recommendations.some((item) => item.title === 'Deixe suas contribuições e resultados mais claros')).toBe(true)
   })
 
   it('does not mistake an experience date range for a phone number', () => {

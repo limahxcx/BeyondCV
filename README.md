@@ -41,7 +41,7 @@ npm run preview
 - Use a guided interview to add only details confirmed by the user.
 - Compare resume text with job-description keywords; missing terms are not treated as missing skills.
 - Save resume drafts and versions in browser IndexedDB.
-- Use the interface in English, Brazilian Portuguese, or Spanish.
+- Use the interface in Brazilian Portuguese; resumes in Portuguese, English, and Spanish can still be analyzed. Translation files are retained for future use.
 - Install as a basic PWA and use the app shell offline after a successful visit.
 
 ## Privacy
